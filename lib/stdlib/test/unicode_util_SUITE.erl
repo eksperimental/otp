@@ -174,15 +174,20 @@ gc_extra() ->
      {[EP1,ZWJ,Ext,ZWJ,EP2], [[EP1,ZWJ,Ext,ZWJ],EP2]},
      {[EP1,ZWJ,ZWJ,EP2], [[EP1,ZWJ,ZWJ],EP2]},
      {[EP1,SM,ZWJ,EP2], [[EP1,SM,ZWJ],EP2]},
-     %% GB9c: only InCB=Extend|Linker allowed between consonants
+     %% GB9c: InCB=Linker InCB=Extend* x InCB=Consonant
      {[KA,Virama,KA], [[KA,Virama,KA]]},
-     {[KA,Visarga,Virama,KA], [[KA,Visarga,Virama],KA]},
+     {[KA,Visarga,Virama,KA], [[KA,Visarga,Virama,KA]]},
      {[KA,Virama,Visarga,KA], [[KA,Virama,Visarga],KA]},
-     {[KA,ZWNJ,Virama,KA], [[KA,ZWNJ,Virama],KA]},
+     {[KA,ZWNJ,Virama,KA], [[KA,ZWNJ,Virama,KA]]},
      {[KA,Virama,ZWNJ,KA], [[KA,Virama,ZWNJ],KA]}, %% ZWNJ: explicit virama, no conjunct
      {[KA,ZWJ,Virama,KA], [[KA,ZWJ,Virama,KA]]},
      %% Bengali KA, VOWEL SIGN AA (Mc but InCB=Extend), VIRAMA, KA
-     {[16#995,16#9BE,16#9CD,16#995], [[16#995,16#9BE,16#9CD,16#995]]}
+     {[16#995,16#9BE,16#9CD,16#995], [[16#995,16#9BE,16#9CD,16#995]]},
+     %% GB9c after an ExtPict and after a Hangul syllable
+     {[EP1,Virama,KA], [[EP1,Virama,KA]]},
+     {[EP1,Virama,ZWJ,KA], [[EP1,Virama,ZWJ,KA]]},
+     {[EP1,ZWJ,Virama,KA], [[EP1,ZWJ,Virama,KA]]},
+     {[16#AC00,Virama,KA], [[16#AC00,Virama,KA]]}
     ].
 
 verify_gc(Line0, N, Acc) ->

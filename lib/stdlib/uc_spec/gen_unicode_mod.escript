@@ -63,9 +63,9 @@ main(Args) ->
     PropF = file_open("../uc_spec/PropList.txt"),
     Props2 = foldl(fun parse_properties/2, Props1, PropF),
     ok = file:close(PropF),
-    Indic = file_open("../uc_spec/IndicSyllabicCategory.txt"),
-    Props3 = foldl(fun parse_properties/2, Props2, Indic),
-    ok = file:close(Indic),
+    DCPF = file_open("../uc_spec/DerivedCoreProperties.txt"),
+    Props3 = foldl(fun parse_incb/2, Props2, DCPF),
+    ok = file:close(DCPF),
     Props = sofs:to_external(sofs:relation_to_family(sofs:relation(Props3))),
 
     WidthF = file_open("../uc_spec/EastAsianWidth.txt"),
@@ -198,6 +198,16 @@ parse_properties(Line0, Acc) ->
             [{to_atom(Class), {hex_to_int(CodePoint), undefined}}|Acc];
         [CodePoint1,"",CodePoint2] ->
             [{to_atom(Class), {hex_to_int(CodePoint1), hex_to_int(CodePoint2)}}|Acc]
+    end.
+
+%% Keep only the Indic_Conjunct_Break values, as incb_consonant, incb_extend and incb_linker
+parse_incb(Line0, Acc) ->
+    [Line|_Comments] = tokens(Line0, "#"),
+    case tokens(Line, ";") of
+        [CodePoints, " InCB", Value] ->
+            parse_properties(CodePoints ++ ";incb_" ++ string:trim(Value), Acc);
+        _ ->
+            Acc
     end.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -865,11 +875,7 @@ gen_gc(Fd, GBP, Data) ->
  gc_1(R,CP) ->
      case is_ext_pict(CP) of
          true -> gc_ext_pict(R, [CP]);
-         false ->
-             case is_indic_consonant(CP) of
-                 true -> gc_indic(cp(R), R, false, [CP]);
-                 false -> gc_extend(cp(R), R, CP)
-             end
+         false -> gc_extend(cp(R), R, CP)
      end.
 
 
@@ -903,7 +909,11 @@ gen_gc(Fd, GBP, Data) ->
     io:put_chars(Fd,
                  "gc_extend([CP|T], T0, CP0) ->\n"
                  "    case is_extend(CP) of\n"
-                 "        false -> [CP0|T0]; % losing work done on T\n"
+                 "        false ->\n"
+                 "            case is_indic_linker(CP0) andalso is_indic_consonant(CP) of\n"
+                 "                true -> gc_extend2(cp(T), T, [CP,CP0]); % GB9c\n"
+                 "                false -> [CP0|T0] % losing work done on T\n"
+                 "            end;\n"
                  "        _TrueOrZWJ -> gc_extend2(cp(T), T, [CP,CP0])\n"
                  "    end;\n"
                  "gc_extend([], T0, CP) -> [CP|T0];\n"
@@ -911,7 +921,7 @@ gen_gc(Fd, GBP, Data) ->
     io:put_chars(Fd,
                  "gc_extend2([CP|T], T0, Acc) ->\n"
                  "    case is_extend(CP) of\n"
-                 "        false -> [lists:reverse(Acc)|T0]; % losing work done on T\n"
+                 "        false -> gc_conjunct(CP, T, T0, Acc); % losing work done on T\n"
                  "        _TrueOrZWJ -> gc_extend2(cp(T), T, [CP|Acc])\n"
                  "    end;\n"
                  "gc_extend2([], T0, Acc) ->\n"
@@ -928,9 +938,9 @@ gen_gc(Fd, GBP, Data) ->
     [GenExtend(CP) || CP <- Extends],
     io:put_chars(Fd, "is_extend(_) -> false.\n\n"),
 
-    %% is_extend/1 is true for both Extend and SpacingMark, but GB11 and
-    %% GB9c need to know the difference. Only used in the slow paths
-    %% (ExtPict and Indic), keep it small: SpacingMark is (almost)
+    %% is_extend/1 is true for both Extend and SpacingMark, but GB11
+    %% needs to know the difference. Only used in the slow path
+    %% (ExtPict), keep it small: SpacingMark is (almost)
     %% General_Category=Mc, so use category/1 and list the exceptions only.
     ExtendSet = gc_range_set(maps:get(extend, GBP)),
     SMSet = gc_range_set(maps:get(spacingmark, GBP)),
@@ -940,7 +950,6 @@ gen_gc(Fd, GBP, Data) ->
                        _ -> false
                    end
            end,
-    true = sets:is_element(16#200C, ExtendSet), %% ZWNJ, see gc_indic
     SMNotMc = [{CP,undefined} || CP <- lists:sort(sets:to_list(SMSet)), not IsMc(CP)],
     McExtend = [{CP,undefined} || CP <- lists:sort(sets:to_list(ExtendSet)), IsMc(CP)],
     io:put_chars(Fd, "%% Only valid when is_extend(CP) =:= true\n"),
@@ -964,7 +973,7 @@ gen_gc(Fd, GBP, Data) ->
                  "                true -> gc_extend2(cp(R1), R1, [CP|Acc]); % GB9a, not GB11\n"
                  "                false -> gc_ext_pict(R1, [CP|Acc])\n"
                  "            end;\n"
-                 "        false -> add_acc(Acc, T0)\n"
+                 "        false -> gc_conjunct(CP, R1, T0, Acc)\n"
                  "    end;\n"
                  "gc_ext_pict([], T0, Acc) ->\n"
                  "    add_acc(Acc, T0);\n"
@@ -976,7 +985,7 @@ gen_gc(Fd, GBP, Data) ->
                  "        true -> gc_ext_pict(R1, [CP|Acc]);\n"
                  "        false ->\n"
                  "            case is_extend(CP) of\n"
-                 "                false -> add_acc(Acc, T0);\n"
+                 "                false -> gc_conjunct(CP, R1, T0, Acc);\n"
                  "                _ -> gc_extend2(cp(R1), R1, [CP|Acc]) % GB9, GB9a\n"
                  "            end\n"
                  "    end;\n"
@@ -1050,53 +1059,33 @@ gen_gc(Fd, GBP, Data) ->
     io:put_chars(Fd, "gc_h_lv_lvt(R1, R0, [CP]) -> gc_extend(R1, R0, CP);\n"),
     io:put_chars(Fd, "gc_h_lv_lvt(R1, R0, Acc) -> gc_extend2(R1, R0, Acc).\n\n"),
 
-    %% Indic
-    %% See tr44 5.3.1 Derivation of Indic_Conjunct_Break
-    %%  and IndicSyllabicCategory.txt  also tr29 conjunctCluster
+    %% Indic_Conjunct_Break, from DerivedCoreProperties.txt
     io:put_chars(Fd, "\n%% Handle Indic Conjunct Break\n"),
-    Consonants = maps:get(consonant, GBP) ++
-        maps:get(vowel_independent, GBP) ++
-        [{16#1B0B, 16#1B0C}],
-    GenIndicC = fun(Range) -> io:format(Fd, "is_indic_consonant~s true;\n", [gen_single_clause(Range)]) end,
-    [GenIndicC(CP) || CP <- merge_ranges(Consonants)],
-    io:format(Fd, "is_indic_consonant(_) -> false.\n\n", []),
-
-    GenIndicL = fun(Range) -> io:format(Fd, "is_indic_linker~s true;\n", [gen_single_clause(Range)]) end,
-    Linkers = maps:get(virama, GBP) ++ maps:get(invisible_stacker, GBP),
-    [GenIndicL(CP) || CP <- merge_ranges(Linkers)],
-    io:format(Fd, "is_indic_linker(_) -> false.\n\n", []),
+    GenInCB = fun(Name, Key) ->
+                      [io:format(Fd, "~s~s true;\n", [Name, gen_single_clause(Range)]) ||
+                          Range <- merge_ranges(maps:get(Key, GBP))],
+                      io:format(Fd, "~s(_) -> false.\n\n", [Name])
+              end,
+    GenInCB("is_indic_consonant", incb_consonant),
+    GenInCB("is_indic_linker", incb_linker),
+    GenInCB("is_indic_extend", incb_extend),
 
     io:put_chars(Fd,
                  """
-                 gc_indic([CP|R1], R0, FetchedLinker, CPs) ->
-                     case is_indic_linker(CP) of
-                         true ->
-                             gc_indic(cp(R1), R1, true, [CP|CPs]);
-                         false ->
-                             case is_extend(CP) of
-                                 false when FetchedLinker ->
-                                     case is_indic_consonant(CP) of
-                                         true -> gc_indic(cp(R1), R1, false, [CP|CPs]);
-                                         false -> add_acc(CPs, R0)
-                                     end;
-                                 false ->
-                                     add_acc(CPs, R0);
-                                 zwj ->
-                                     gc_indic(cp(R1), R1, FetchedLinker, [CP|CPs]);
-                                 true ->
-                                     %% SpacingMark and ZWNJ are InCB=None, GB9c not possible
-                                     case CP =:= 16#200C orelse is_spacing_mark(CP) of
-                                         false ->
-                                             gc_indic(cp(R1), R1, FetchedLinker, [CP|CPs]);
-                                         true ->
-                                             gc_extend2(cp(R1), R1, [CP|CPs])
-                                     end
-                             end
-                     end;
-                 gc_indic([], R0, _, CPs) ->
-                     add_acc(CPs, R0);
-                 gc_indic({error, R0}, _, _, CPs) ->
-                     add_acc(CPs, R0).
+                 %% GB9c: InCB=Linker InCB=Extend* x InCB=Consonant
+                 %% CP is the code point after the cluster in Acc (reversed), T is the
+                 %% rest after CP, and T0 is the rest after the cluster.
+                 gc_conjunct(CP, T, T0, Acc) ->
+                     case is_indic_consonant(CP) andalso is_after_linker(Acc) of
+                         true -> gc_extend2(cp(T), T, [CP|Acc]);
+                         false -> add_acc(Acc, T0)
+                     end.
+
+                 is_after_linker([CP|Acc]) ->
+                     is_indic_linker(CP) orelse
+                         (is_indic_extend(CP) andalso is_after_linker(Acc));
+                 is_after_linker([]) ->
+                     false.
 
                  add_acc([CP], R) -> [CP|R];
                  add_acc(CPs, R) -> [lists:reverse(CPs)|R].
