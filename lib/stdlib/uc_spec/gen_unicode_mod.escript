@@ -356,7 +356,7 @@ category(Codepoint) when ?IS_CP(Codepoint) ->
                  "        {U,L,T,F} -> #{upper=>U,lower=>L,title=>T,fold=>F}\n"
                  "    end.\n\n"),
 
-    io:put_chars(Fd, "spec_version() -> {17,0}.\n\n\n"),
+    io:put_chars(Fd, "spec_version() -> {18,0}.\n\n\n"),
     io:put_chars(Fd, "class(Codepoint) when ?IS_CP(Codepoint) -> \n"
                  "    {CCC,_,_,_} = unicode_table(Codepoint),\n    CCC.\n\n"),
 
