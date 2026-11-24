@@ -18,10 +18,10 @@ limitations under the License.
 
 %CopyrightEnd%
 
-Unicode 17.0.0 was updated from:
-- https://www.unicode.org/Public/17.0.0/ucd/
-- https://www.unicode.org/Public/17.0.0/ucd/auxiliary/
-- https://www.unicode.org/Public/17.0.0/ucd/emoji/
+Unicode 18.0.0 was updated from:
+- https://www.unicode.org/Public/18.0.0/ucd/
+- https://www.unicode.org/Public/18.0.0/ucd/auxiliary/
+- https://www.unicode.org/Public/18.0.0/ucd/emoji/
 
 When updating the Unicode version please follow these steps:
 
